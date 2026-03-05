@@ -103,16 +103,16 @@ const CheckoutPage: React.FC = () => {
     try {
       const { data: order, error } = await supabase
         .from('orders')
-        .insert([{
+        .insert({
           user_id: userProfile.id,
           address_id: selectedAddress.id,
           total_amount: total,
           payment_status: 'pending',
-          order_status: 'processing',
+          order_status: 'pending',
           shipping_method: 'standard',
           shipping_cost: shipping,
           payment_method: paymentMethod
-        } as any])
+        } as any)
         .select()
         .single();
 
@@ -146,10 +146,16 @@ const CheckoutPage: React.FC = () => {
       if (!order) throw new Error('Failed to create order');
 
       // Load Razorpay script
-      const script = document.createElement('script');
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      script.async = true;
-      document.body.appendChild(script);
+      if (!window.Razorpay) {
+        const script = document.createElement("script");
+        script.src = "https://checkout.razorpay.com/v1/checkout.js";
+        script.async = true;
+        document.body.appendChild(script);
+
+        await new Promise((resolve) => {
+          script.onload = resolve;
+        });
+      }
 
       script.onload = () => {
         const options = {
@@ -159,25 +165,26 @@ const CheckoutPage: React.FC = () => {
           name: "RegionalMart",
           description: "Order Payment",
 
-          handler: async (response: any) => {
-            try {
-              await supabase
-                .from("orders")
-                .update({
-                  payment_status: "completed",
-                  razorpay_payment_id: response.razorpay_payment_id
-                })
-                .eq("id", order.id);
+        handler: async (response: any) => {
+          try {
+            await supabase
+              .from("orders")
+              .update({
+                payment_status: "completed",
+                order_status: "confirmed",
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id
+              } as any)
+              .eq("id", order.id);
 
-              await clearCart();
+            await clearCart();
 
-              navigate(`/order-success/${order.id}`);
-            } catch (error) {
-              console.error(error);
-            }
-          },
-
-          prefill: {
+            navigate(`/order-success/${order.id}`);
+          } catch (error) {
+            console.error("Payment update failed:", error);
+          }
+        },
+        prefill: {
             name: `${userProfile.first_name} ${userProfile.last_name}`,
             email: userProfile.email,
             contact: userProfile.mobile || ""
