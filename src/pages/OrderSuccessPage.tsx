@@ -2,38 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { CheckCircle, Package, Truck, Calendar } from 'lucide-react';
 import { OrderService } from '../services/orderService';
+import { OrderData } from '../types/order';
 
-interface OrderData {
-  id: string;
-  total_amount: number;
-  payment_status: string;
-  order_status: string;
-  payment_method: string;
-  razorpay_payment_id?: string;
-  razorpay_order_id?: string;
-  shipping_cost: number;
-  created_at: string;
-  order_items?: Array<{
-    id: string;
-    quantity: number;
-    price: number;
-    variant: {
-      weight: number;
-      weight_unit: string;
-      product: {
-        name: string;
-        images: Array<{ image_url: string }>;
-      };
-    };
-  }>;
-  address?: {
-    address_line1: string;
-    address_line2: string;
-    city: string;
-    state: string;
-    pincode: string;
-  };
-}
 
 const OrderSuccessPage: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
@@ -42,21 +12,27 @@ const OrderSuccessPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log('[OrderSuccess] Component mounted with orderId:', orderId);
     if (orderId) {
       fetchOrder();
     }
   }, [orderId]);
 
   const fetchOrder = async () => {
+    console.log('[OrderSuccess] Fetching order details for:', orderId);
+    
     try {
-      console.log('Fetching order details for:', orderId);
+      if (!orderId) {
+        throw new Error('Order ID is required');
+      }
+
       const orderData = await OrderService.getOrder(orderId!);
       
-      console.log('Order data received:', orderData);
+      console.log('[OrderSuccess] Order data received:', orderData);
       setOrder(orderData);
       setError(null);
     } catch (err: any) {
-      console.error('Error fetching order:', err);
+      console.error('[OrderSuccess] Error fetching order:', err);
       setError(err.message || 'Failed to load order details');
     } finally {
       setLoading(false);
@@ -64,6 +40,7 @@ const OrderSuccessPage: React.FC = () => {
   };
 
   const formatPrice = (price: number) => {
+    if (!price || isNaN(price)) return '₹0';
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
@@ -106,10 +83,13 @@ const OrderSuccessPage: React.FC = () => {
         return 'bg-purple-100 text-purple-800';
       case 'delivered':
         return 'bg-green-100 text-green-800';
+      case 'failed':
+        return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
   };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -142,11 +122,22 @@ const OrderSuccessPage: React.FC = () => {
       <div className="max-w-3xl mx-auto px-4">
         {/* Success Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
-            <CheckCircle className="h-8 w-8 text-green-600" />
+          <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 ${
+            order.order_status === 'failed' ? 'bg-red-100' : 'bg-green-100'
+          }`}>
+            <CheckCircle className={`h-8 w-8 ${
+              order.order_status === 'failed' ? 'text-red-600' : 'text-green-600'
+            }`} />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Order Placed Successfully!</h1>
-          <p className="text-gray-600">Thank you for your purchase. Your order has been confirmed.</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            {order.order_status === 'failed' ? 'Order Failed' : 'Order Placed Successfully!'}
+          </h1>
+          <p className="text-gray-600">
+            {order.order_status === 'failed' 
+              ? 'There was an issue with your order. Please contact support.'
+              : 'Thank you for your purchase. Your order has been confirmed.'
+            }
+          </p>
         </div>
 
         {/* Order Details Card */}
@@ -219,17 +210,26 @@ const OrderSuccessPage: React.FC = () => {
                 {order.order_items.map((item) => (
                   <div key={item.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
                     <img
-                      src={item.variant?.product?.images?.[0]?.image_url || 'https://images.pexels.com/photos/264537/pexels-photo-264537.jpeg?auto=compress&cs=tinysrgb&w=100'}
+                      src={
+                        item.variant?.product?.images?.[0]?.image_url || 
+                        'https://images.pexels.com/photos/264537/pexels-photo-264537.jpeg?auto=compress&cs=tinysrgb&w=100'
+                      }
                       alt={item.variant?.product?.name || 'Product'}
                       className="w-16 h-16 object-cover rounded-lg"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = 'https://images.pexels.com/photos/264537/pexels-photo-264537.jpeg?auto=compress&cs=tinysrgb&w=100';
+                      }}
                     />
                     <div className="flex-1">
                       <h4 className="font-medium text-gray-900">
                         {item.variant?.product?.name || 'Product'}
                       </h4>
-                      <p className="text-sm text-gray-600">
-                        {item.variant?.weight} {item.variant?.weight_unit} × {item.quantity}
-                      </p>
+                      {item.variant && (
+                        <p className="text-sm text-gray-600">
+                          {item.variant.weight} {item.variant.weight_unit} × {item.quantity}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-gray-900">
@@ -277,7 +277,8 @@ const OrderSuccessPage: React.FC = () => {
             </div>
           )}
 
-          <div className="border-t border-gray-200 pt-6">
+          {order.order_status !== 'failed' && (
+            <div className="border-t border-gray-200 pt-6">
             <h3 className="font-semibold text-gray-900 mb-4">What happens next?</h3>
             <div className="space-y-4">
               <div className="flex items-start gap-3">
@@ -313,17 +314,20 @@ const OrderSuccessPage: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link
-            to="/orders"
-            className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-3 rounded-lg font-semibold transition-colors text-center"
-          >
-            Track Your Order
-          </Link>
+          {order.order_status !== 'failed' && (
+            <Link
+              to="/orders"
+              className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-3 rounded-lg font-semibold transition-colors text-center"
+            >
+              Track Your Order
+            </Link>
+          )}
           <Link
             to="/"
             className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-8 py-3 rounded-lg font-semibold transition-colors text-center"
@@ -334,7 +338,9 @@ const OrderSuccessPage: React.FC = () => {
 
         {/* Additional Info */}
         <div className="mt-8 text-center text-sm text-gray-600">
-          <p>You will receive an email confirmation shortly with your order details.</p>
+          {order.order_status !== 'failed' && (
+            <p>You will receive an email confirmation shortly with your order details.</p>
+          )}
           <p className="mt-2">
             Need help? <Link to="/contact" className="text-orange-600 hover:text-orange-700">Contact our support team</Link>
           </p>
